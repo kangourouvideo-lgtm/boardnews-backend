@@ -1,6 +1,7 @@
 const express = require("express");
 const Parser = require("rss-parser");
 const cors = require("cors");
+const cheerio = require("cheerio");
 
 const app = express();
 app.use(cors());
@@ -15,6 +16,18 @@ const sources = [
   {
     nom: "Gus & Co",
     url: "https://gusandco.net/feed/"
+  },
+  {
+    nom: "Tric Trac",
+    url: "https://www.trictrac.net/rss"
+  },
+  {
+    nom: "Vindjeu",
+    url: "https://vindjeu.eu/feed/"
+  },
+  {
+    nom: "Un Monde de Jeux",
+    url: "https://unmondedejeux.fr/feed/"
   }
 ];
 
@@ -29,7 +42,21 @@ function extraireNomJeu(titre) {
     .join(" ");
 }
 
-function extraireImageDepuisArticle(item) {
+function rendreUrlAbsolue(url, baseUrl) {
+  if (!url) return null;
+
+  if (url.startsWith("http")) {
+    return url;
+  }
+
+  try {
+    return new URL(url, baseUrl).href;
+  } catch {
+    return null;
+  }
+}
+
+function extraireImageDepuisFlux(item) {
   const contenu =
     item["content:encoded"] ||
     item.content ||
@@ -50,6 +77,47 @@ function extraireImageDepuisArticle(item) {
   return null;
 }
 
+async function extraireImageDepuisPageArticle(lienArticle) {
+  try {
+    if (!lienArticle) return null;
+
+    const response = await fetch(lienArticle, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 BoardNewsBot"
+      }
+    });
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+
+    let image =
+      $('meta[property="og:image"]').attr("content") ||
+      $('meta[name="twitter:image"]').attr("content") ||
+      $("article img").first().attr("src") ||
+      $("img").first().attr("src");
+
+    image = rendreUrlAbsolue(image, lienArticle);
+
+    if (!image) return null;
+
+    if (
+      image.includes("logo") ||
+      image.includes("avatar") ||
+      image.includes("icon") ||
+      image.includes("blank") ||
+      image.includes("placeholder")
+    ) {
+      return null;
+    }
+
+    return image;
+
+  } catch (error) {
+    console.log("Erreur image article :", error.message);
+    return null;
+  }
+}
+
 app.get("/actus", async (req, res) => {
   try {
     let results = [];
@@ -58,22 +126,28 @@ app.get("/actus", async (req, res) => {
       try {
         const feed = await parser.parseURL(source.url);
 
-        const items = feed.items.slice(0, 10).map(item => {
+        for (const item of feed.items.slice(0, 10)) {
           const titre = item.title || "Titre inconnu";
+          const lien = item.link || "";
           const jeu = extraireNomJeu(titre);
-          const image = extraireImageDepuisArticle(item);
 
-          return {
+          let image = extraireImageDepuisFlux(item);
+
+          const imageArticle = await extraireImageDepuisPageArticle(lien);
+
+          if (imageArticle) {
+            image = imageArticle;
+          }
+
+          results.push({
             titre: titre,
             date: item.pubDate || item.isoDate || "Date inconnue",
-            lien: item.link || "",
+            lien: lien,
             jeu: jeu,
             image: image,
             source: source.nom
-          };
-        });
-
-        results.push(...items);
+          });
+        }
 
       } catch (sourceError) {
         console.log("Erreur source :", source.nom, sourceError.message);
