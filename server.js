@@ -66,11 +66,13 @@ app.get("/actus", async (req, res) => {
         const jeu = extraireNomJeu(titre);
         const image = await chercherImageBGG(jeu);
 
-        results.push({
-         image: image || "https://cf.geekdo-images.com/original/img/0PNL3k-xTm2iLj8P8yE1gzKPVyw=/0x0/filters:format(jpeg)/pic3536616.jpg"
-        });
-      }
-    }
+       results.push({
+  titre: titre,
+  date: item.pubDate,
+  lien: item.link,
+  jeu: jeu,
+  image: image || "https://cf.geekdo-images.com/original/img/0PNL3k-xTm2iLj8P8yE1gzKPVyw=/0x0/filters:format(jpeg)/pic3536616.jpg"
+});
 
     res.json(results);
 
