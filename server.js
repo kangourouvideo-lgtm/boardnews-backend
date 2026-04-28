@@ -7,10 +7,52 @@ app.use(cors());
 
 const parser = new Parser();
 
-// 📡 sources de news
 const sources = [
   "https://ludovox.fr/feed/"
 ];
+
+function extraireNomJeu(titre) {
+  if (!titre) return "";
+
+  return titre
+    .replace(/[^\p{L}\p{N} ]/gu, " ")
+    .split(" ")
+    .filter(mot => mot.length > 3)
+    .slice(0, 3)
+    .join(" ");
+}
+
+async function chercherImageBGG(nomJeu) {
+  try {
+    if (!nomJeu) return null;
+
+    const searchUrl =
+      "https://boardgamegeek.com/xmlapi2/search?type=boardgame&query=" +
+      encodeURIComponent(nomJeu);
+
+    const searchResponse = await fetch(searchUrl);
+    const searchXml = await searchResponse.text();
+
+    const idMatch = searchXml.match(/<item[^>]*id="([^"]+)"/);
+    if (!idMatch) return null;
+
+    const id = idMatch[1];
+
+    const detailUrl =
+      "https://boardgamegeek.com/xmlapi2/thing?id=" + id;
+
+    const detailResponse = await fetch(detailUrl);
+    const detailXml = await detailResponse.text();
+
+    const imageMatch = detailXml.match(/<image>(.*?)<\/image>/);
+    if (!imageMatch) return null;
+
+    return imageMatch[1];
+  } catch (error) {
+    console.log("Erreur image BGG :", error.message);
+    return null;
+  }
+}
 
 app.get("/actus", async (req, res) => {
   try {
@@ -19,11 +61,19 @@ app.get("/actus", async (req, res) => {
     for (const url of sources) {
       const feed = await parser.parseURL(url);
 
-      results.push(...feed.items.map(item => ({
-        titre: item.title,
-        date: item.pubDate,
-        lien: item.link
-      })));
+      for (const item of feed.items.slice(0, 10)) {
+        const titre = item.title || "";
+        const jeu = extraireNomJeu(titre);
+        const image = await chercherImageBGG(jeu);
+
+        results.push({
+          titre: titre,
+          date: item.pubDate,
+          lien: item.link,
+          jeu: jeu,
+          image: image
+        });
+      }
     }
 
     res.json(results);
@@ -33,7 +83,6 @@ app.get("/actus", async (req, res) => {
   }
 });
 
-// 🚀 lancement serveur
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
