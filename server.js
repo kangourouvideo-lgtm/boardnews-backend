@@ -16,6 +16,10 @@ const sources = [
   { nom: "Un Monde de Jeux", url: "https://unmondedejeux.fr/feed/" }
 ];
 
+let cacheActus = [];
+let cacheDate = 0;
+const CACHE_DUREE = 1000 * 60 * 30; // 30 minutes
+
 function extraireNomJeu(titre) {
   if (!titre) return "";
 
@@ -27,33 +31,18 @@ function extraireNomJeu(titre) {
     .join(" ");
 }
 
-function rendreUrlAbsolue(url, baseUrl) {
-  if (!url) return null;
-
-  if (url.startsWith("http")) {
-    return url;
-  }
-
-  try {
-    return new URL(url, baseUrl).href;
-  } catch {
-    return null;
-  }
-}
-
 function imageValide(url) {
   if (!url) return false;
-
   const u = url.toLowerCase();
 
-  if (u.includes("logo")) return false;
-  if (u.includes("avatar")) return false;
-  if (u.includes("icon")) return false;
-  if (u.includes("placeholder")) return false;
-  if (u.includes("blank")) return false;
-  if (u.includes("svg")) return false;
-
-  return true;
+  return !(
+    u.includes("logo") ||
+    u.includes("avatar") ||
+    u.includes("icon") ||
+    u.includes("placeholder") ||
+    u.includes("blank") ||
+    u.includes(".svg")
+  );
 }
 
 function extraireImageDepuisFlux(item) {
@@ -77,17 +66,32 @@ function extraireImageDepuisFlux(item) {
   return null;
 }
 
-async function extraireImageDepuisArticle(lienArticle) {
-  try {
-    if (!lienArticle) return null;
+async function fetchAvecTimeout(url, ms = 4000) {
+  const controller = new AbortController();
 
-    const response = await fetch(lienArticle, {
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, ms);
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
       headers: {
         "User-Agent": "Mozilla/5.0 BoardNewsBot"
       }
     });
 
-    const html = await response.text();
+    return await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function extraireImageDepuisArticle(lienArticle) {
+  try {
+    if (!lienArticle) return null;
+
+    const html = await fetchAvecTimeout(lienArticle, 4000);
     const $ = cheerio.load(html);
 
     const candidates = [
@@ -96,65 +100,77 @@ async function extraireImageDepuisArticle(lienArticle) {
       $('meta[name="twitter:image"]').attr("content"),
       $("article img").first().attr("src"),
       $(".entry-content img").first().attr("src"),
-      $(".post-content img").first().attr("src"),
-      $("img").first().attr("src")
+      $(".post-content img").first().attr("src")
     ];
 
     for (const candidate of candidates) {
-      const image = rendreUrlAbsolue(candidate, lienArticle);
-
-      if (imageValide(image)) {
-        return image;
+      if (imageValide(candidate)) {
+        return candidate;
       }
     }
 
     return null;
 
   } catch (error) {
-    console.log("Erreur image article :", error.message);
     return null;
   }
 }
 
-app.get("/actus", async (req, res) => {
-  try {
-    let results = [];
+async function chargerActus() {
+  let results = [];
 
-    for (const source of sources) {
-      try {
-        const feed = await parser.parseURL(source.url);
+  for (const source of sources) {
+    try {
+      const feed = await parser.parseURL(source.url);
 
-        for (const item of feed.items.slice(0, 8)) {
-          const titre = item.title || "Titre inconnu";
-          const lien = item.link || "";
-          const jeu = extraireNomJeu(titre);
+      for (const item of feed.items.slice(0, 4)) {
+        const titre = item.title || "Titre inconnu";
+        const lien = item.link || "";
+        const jeu = extraireNomJeu(titre);
 
-          let image = await extraireImageDepuisArticle(lien);
+        let image = extraireImageDepuisFlux(item);
 
-          if (!image) {
-            image = extraireImageDepuisFlux(item);
-          }
-
-          results.push({
-            titre: titre,
-            date: item.pubDate || item.isoDate || "Date inconnue",
-            lien: lien,
-            jeu: jeu,
-            image: image,
-            source: source.nom
-          });
+        const imageArticle = await extraireImageDepuisArticle(lien);
+        if (imageArticle) {
+          image = imageArticle;
         }
 
-      } catch (sourceError) {
-        console.log("Erreur source :", source.nom, sourceError.message);
+        results.push({
+          titre: titre,
+          date: item.pubDate || item.isoDate || "Date inconnue",
+          lien: lien,
+          jeu: jeu,
+          image: image,
+          source: source.nom
+        });
       }
+
+    } catch (sourceError) {
+      console.log("Erreur source :", source.nom, sourceError.message);
+    }
+  }
+
+  results.sort((a, b) => {
+    return new Date(b.date) - new Date(a.date);
+  });
+
+  return results;
+}
+
+app.get("/actus", async (req, res) => {
+  try {
+    const maintenant = Date.now();
+
+    if (cacheActus.length > 0 && maintenant - cacheDate < CACHE_DUREE) {
+      return res.json(cacheActus);
     }
 
-    results.sort((a, b) => {
-      return new Date(b.date) - new Date(a.date);
-    });
+    const actus = await chargerActus();
 
-    res.json(results);
+    cacheActus = actus;
+    cacheDate = Date.now();
+
+    res.json(actus);
 
   } catch (err) {
     console.log("Erreur backend :", err.message);
