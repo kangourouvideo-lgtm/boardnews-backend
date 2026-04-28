@@ -11,6 +11,7 @@ const sources = [
   "https://ludovox.fr/feed/"
 ];
 
+// 🔎 extraction simple du nom du jeu
 function extraireNomJeu(titre) {
   if (!titre) return "";
 
@@ -22,6 +23,7 @@ function extraireNomJeu(titre) {
     .join(" ");
 }
 
+// 🖼️ récupération image BGG
 async function chercherImageBGG(nomJeu) {
   try {
     if (!nomJeu) return null;
@@ -48,12 +50,14 @@ async function chercherImageBGG(nomJeu) {
     if (!imageMatch) return null;
 
     return imageMatch[1];
+
   } catch (error) {
     console.log("Erreur image BGG :", error.message);
     return null;
   }
 }
 
+// 🌐 route API
 app.get("/actus", async (req, res) => {
   try {
     let results = [];
@@ -66,13 +70,15 @@ app.get("/actus", async (req, res) => {
         const jeu = extraireNomJeu(titre);
         const image = await chercherImageBGG(jeu);
 
-       results.push({
-  titre: titre,
-  date: item.pubDate,
-  lien: item.link,
-  jeu: jeu,
-  image: image || "https://cf.geekdo-images.com/original/img/0PNL3k-xTm2iLj8P8yE1gzKPVyw=/0x0/filters:format(jpeg)/pic3536616.jpg"
-});
+        results.push({
+          titre: titre,
+          date: item.pubDate,
+          lien: item.link,
+          jeu: jeu,
+          image: image || "https://cf.geekdo-images.com/original/img/0PNL3k-xTm2iLj8P8yE1gzKPVyw=/0x0/filters:format(jpeg)/pic3536616.jpg"
+        });
+      }
+    }
 
     res.json(results);
 
@@ -81,6 +87,7 @@ app.get("/actus", async (req, res) => {
   }
 });
 
+// 🚀 lancement serveur
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
