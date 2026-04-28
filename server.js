@@ -8,10 +8,16 @@ app.use(cors());
 const parser = new Parser();
 
 const sources = [
-  "https://ludovox.fr/feed/"
+  {
+    nom: "Ludovox",
+    url: "https://ludovox.fr/feed/"
+  },
+  {
+    nom: "Gus & Co",
+    url: "https://gusandco.net/feed/"
+  }
 ];
 
-// 🔎 extraction simple du nom du jeu
 function extraireNomJeu(titre) {
   if (!titre) return "";
 
@@ -23,71 +29,69 @@ function extraireNomJeu(titre) {
     .join(" ");
 }
 
-// 🖼️ récupération image BGG
-async function chercherImageBGG(nomJeu) {
-  try {
-    if (!nomJeu) return null;
+function extraireImageDepuisArticle(item) {
+  const contenu =
+    item["content:encoded"] ||
+    item.content ||
+    item.summary ||
+    item.description ||
+    "";
 
-    const searchUrl =
-      "https://boardgamegeek.com/xmlapi2/search?type=boardgame&query=" +
-      encodeURIComponent(nomJeu);
+  const imageMatch = contenu.match(/<img[^>]+src="([^">]+)"/);
 
-    const searchResponse = await fetch(searchUrl);
-    const searchXml = await searchResponse.text();
-
-    const idMatch = searchXml.match(/<item[^>]*id="([^"]+)"/);
-    if (!idMatch) return null;
-
-    const id = idMatch[1];
-
-    const detailUrl =
-      "https://boardgamegeek.com/xmlapi2/thing?id=" + id;
-
-    const detailResponse = await fetch(detailUrl);
-    const detailXml = await detailResponse.text();
-
-    const imageMatch = detailXml.match(/<image>(.*?)<\/image>/);
-    if (!imageMatch) return null;
-
+  if (imageMatch && imageMatch[1]) {
     return imageMatch[1];
-
-  } catch (error) {
-    console.log("Erreur image BGG :", error.message);
-    return null;
   }
+
+  if (item.enclosure && item.enclosure.url) {
+    return item.enclosure.url;
+  }
+
+  return null;
 }
 
-// 🌐 route API
 app.get("/actus", async (req, res) => {
   try {
     let results = [];
 
-    for (const url of sources) {
-      const feed = await parser.parseURL(url);
+    for (const source of sources) {
+      try {
+        const feed = await parser.parseURL(source.url);
 
-      for (const item of feed.items.slice(0, 10)) {
-        const titre = item.title || "";
-        const jeu = extraireNomJeu(titre);
-        const image = await chercherImageBGG(jeu);
+        const items = feed.items.slice(0, 10).map(item => {
+          const titre = item.title || "Titre inconnu";
+          const jeu = extraireNomJeu(titre);
+          const image = extraireImageDepuisArticle(item);
 
-        results.push({
-          titre: titre,
-          date: item.pubDate,
-          lien: item.link,
-          jeu: jeu,
-          image: image || "https://cf.geekdo-images.com/original/img/0PNL3k-xTm2iLj8P8yE1gzKPVyw=/0x0/filters:format(jpeg)/pic3536616.jpg"
+          return {
+            titre: titre,
+            date: item.pubDate || item.isoDate || "Date inconnue",
+            lien: item.link || "",
+            jeu: jeu,
+            image: image,
+            source: source.nom
+          };
         });
+
+        results.push(...items);
+
+      } catch (sourceError) {
+        console.log("Erreur source :", source.nom, sourceError.message);
       }
     }
+
+    results.sort((a, b) => {
+      return new Date(b.date) - new Date(a.date);
+    });
 
     res.json(results);
 
   } catch (err) {
+    console.log("Erreur backend :", err.message);
     res.status(500).json({ error: "Erreur backend" });
   }
 });
 
-// 🚀 lancement serveur
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
