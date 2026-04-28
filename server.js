@@ -1,7 +1,6 @@
 const express = require("express");
 const Parser = require("rss-parser");
 const cors = require("cors");
-const cheerio = require("cheerio");
 
 const app = express();
 app.use(cors());
@@ -18,7 +17,7 @@ const sources = [
 
 let cacheActus = [];
 let cacheDate = 0;
-const CACHE_DUREE = 1000 * 60 * 30; // 30 minutes
+const CACHE_DUREE = 1000 * 60 * 30;
 
 function extraireNomJeu(titre) {
   if (!titre) return "";
@@ -29,20 +28,6 @@ function extraireNomJeu(titre) {
     .filter(mot => mot.length > 3)
     .slice(0, 3)
     .join(" ");
-}
-
-function imageValide(url) {
-  if (!url) return false;
-  const u = url.toLowerCase();
-
-  return !(
-    u.includes("logo") ||
-    u.includes("avatar") ||
-    u.includes("icon") ||
-    u.includes("placeholder") ||
-    u.includes("blank") ||
-    u.includes(".svg")
-  );
 }
 
 function extraireImageDepuisFlux(item) {
@@ -66,56 +51,6 @@ function extraireImageDepuisFlux(item) {
   return null;
 }
 
-async function fetchAvecTimeout(url, ms = 4000) {
-  const controller = new AbortController();
-
-  const timeout = setTimeout(() => {
-    controller.abort();
-  }, ms);
-
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "Mozilla/5.0 BoardNewsBot"
-      }
-    });
-
-    return await response.text();
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function extraireImageDepuisArticle(lienArticle) {
-  try {
-    if (!lienArticle) return null;
-
-    const html = await fetchAvecTimeout(lienArticle, 4000);
-    const $ = cheerio.load(html);
-
-    const candidates = [
-      $('meta[property="og:image"]').attr("content"),
-      $('meta[property="og:image:secure_url"]').attr("content"),
-      $('meta[name="twitter:image"]').attr("content"),
-      $("article img").first().attr("src"),
-      $(".entry-content img").first().attr("src"),
-      $(".post-content img").first().attr("src")
-    ];
-
-    for (const candidate of candidates) {
-      if (imageValide(candidate)) {
-        return candidate;
-      }
-    }
-
-    return null;
-
-  } catch (error) {
-    return null;
-  }
-}
-
 async function chargerActus() {
   let results = [];
 
@@ -123,36 +58,27 @@ async function chargerActus() {
     try {
       const feed = await parser.parseURL(source.url);
 
-      for (const item of feed.items.slice(0, 4)) {
+      const items = feed.items.slice(0, 8).map(item => {
         const titre = item.title || "Titre inconnu";
-        const lien = item.link || "";
-        const jeu = extraireNomJeu(titre);
 
-        let image = extraireImageDepuisFlux(item);
-
-        const imageArticle = await extraireImageDepuisArticle(lien);
-        if (imageArticle) {
-          image = imageArticle;
-        }
-
-        results.push({
+        return {
           titre: titre,
           date: item.pubDate || item.isoDate || "Date inconnue",
-          lien: lien,
-          jeu: jeu,
-          image: image,
+          lien: item.link || "",
+          jeu: extraireNomJeu(titre),
+          image: extraireImageDepuisFlux(item),
           source: source.nom
-        });
-      }
+        };
+      });
 
-    } catch (sourceError) {
-      console.log("Erreur source :", source.nom, sourceError.message);
+      results.push(...items);
+
+    } catch (error) {
+      console.log("Erreur source :", source.nom, error.message);
     }
   }
 
-  results.sort((a, b) => {
-    return new Date(b.date) - new Date(a.date);
-  });
+  results.sort((a, b) => new Date(b.date) - new Date(a.date));
 
   return results;
 }
@@ -176,6 +102,10 @@ app.get("/actus", async (req, res) => {
     console.log("Erreur backend :", err.message);
     res.status(500).json({ error: "Erreur backend" });
   }
+});
+
+app.get("/", (req, res) => {
+  res.send("Backend BoardNews OK");
 });
 
 const PORT = process.env.PORT || 3000;
