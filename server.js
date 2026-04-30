@@ -1,6 +1,7 @@
 const express = require("express");
 const Parser = require("rss-parser");
 const cors = require("cors");
+const cheerio = require("cheerio");
 
 const app = express();
 app.use(cors());
@@ -66,9 +67,7 @@ function dateArticle(item) {
 
   const date = new Date(dateBrute);
 
-  if (isNaN(date.getTime())) {
-    return null;
-  }
+  if (isNaN(date.getTime())) return null;
 
   return date;
 }
@@ -92,6 +91,32 @@ function cleDoublon(titre, lien) {
     .replace(/[^a-z0-9]/g, "");
 }
 
+function rendreUrlAbsolue(imageUrl, articleUrl) {
+  if (!imageUrl) return null;
+  if (imageUrl.startsWith("http")) return imageUrl;
+
+  try {
+    return new URL(imageUrl, articleUrl).href;
+  } catch {
+    return null;
+  }
+}
+
+function imageValide(url) {
+  if (!url) return false;
+
+  const u = url.toLowerCase();
+
+  if (u.includes("logo")) return false;
+  if (u.includes("avatar")) return false;
+  if (u.includes("icon")) return false;
+  if (u.includes("placeholder")) return false;
+  if (u.includes("blank")) return false;
+  if (u.includes(".svg")) return false;
+
+  return true;
+}
+
 async function chargerActus() {
   let results = [];
 
@@ -102,7 +127,6 @@ async function chargerActus() {
 
       for (const item of items) {
         const date = dateArticle(item);
-
         if (!date) continue;
 
         const age = ageEnJours(date);
@@ -137,17 +161,13 @@ async function chargerActus() {
   results = results.filter(actu => {
     const cle = cleDoublon(actu.titre, actu.lien);
 
-    if (dejaVus.has(cle)) {
-      return false;
-    }
+    if (dejaVus.has(cle)) return false;
 
     dejaVus.add(cle);
     return true;
   });
 
-  results.sort((a, b) => {
-    return new Date(b.date) - new Date(a.date);
-  });
+  results.sort((a, b) => new Date(b.date) - new Date(a.date));
 
   return results;
 }
@@ -170,6 +190,49 @@ app.get("/actus", async (req, res) => {
   } catch (err) {
     console.log("Erreur backend :", err.message);
     res.status(500).json({ error: "Erreur backend" });
+  }
+});
+
+app.get("/image", async (req, res) => {
+  try {
+    const articleUrl = req.query.url;
+
+    if (!articleUrl) {
+      return res.json({ image: null });
+    }
+
+    const response = await fetch(articleUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 LaParentheseLudiqueNewsBot"
+      }
+    });
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+
+    const candidates = [
+      $('meta[property="og:image"]').attr("content"),
+      $('meta[property="og:image:secure_url"]').attr("content"),
+      $('meta[name="twitter:image"]').attr("content"),
+      $("article img").first().attr("src"),
+      $(".entry-content img").first().attr("src"),
+      $(".post-content img").first().attr("src"),
+      $("img").first().attr("src")
+    ];
+
+    for (const candidate of candidates) {
+      const image = rendreUrlAbsolue(candidate, articleUrl);
+
+      if (imageValide(image)) {
+        return res.json({ image: image });
+      }
+    }
+
+    res.json({ image: null });
+
+  } catch (e) {
+    console.log("Erreur /image :", e.message);
+    res.json({ image: null });
   }
 });
 
