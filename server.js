@@ -13,11 +13,13 @@ const sources = [
   { nom: "Tric Trac", url: "https://www.trictrac.net/rss" },
   { nom: "Vindjeu", url: "https://vindjeu.eu/feed/" },
   { nom: "Un Monde de Jeux", url: "https://unmondedejeux.fr/feed/" },
-
-  // Nouvelles sources
   { nom: "Plateau Marmots", url: "https://plateaumarmots.fr/feed/" },
   { nom: "Les 1D Ludiques", url: "https://les1dludiques.fr/feed/" },
-  { nom: "Le Labo des Jeux", url: "https://www.lelabodesjeux.com/feed/" }
+  { nom: "Le Labo des Jeux", url: "https://www.lelabodesjeux.com/feed/" },
+  { nom: "Jeux Viens à Vous", url: "https://jeuxviensavous.com/feed/" },
+  { nom: "Ludigaume", url: "https://ludigaume.be/feed/" },
+  { nom: "Carnet des Geekeries", url: "https://carnetdesgeekeries.com/feed/" },
+  { nom: "BoardGameGeek", url: "https://boardgamegeek.com/blog/1/rss" }
 ];
 
 let cacheActus = [];
@@ -96,7 +98,6 @@ async function chargerActus() {
   for (const source of sources) {
     try {
       const feed = await parser.parseURL(source.url);
-
       const items = feed.items.slice(0, 20);
 
       for (const item of items) {
