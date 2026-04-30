@@ -17,7 +17,8 @@ const sources = [
 
 let cacheActus = [];
 let cacheDate = 0;
-const CACHE_DUREE = 1000 * 60 * 30;
+const CACHE_DUREE = 1000 * 60 * 10; // 10 minutes
+const JOURS_A_GARDER = 3;
 
 function extraireNomJeu(titre) {
   if (!titre) return "";
@@ -51,6 +52,39 @@ function extraireImageDepuisFlux(item) {
   return null;
 }
 
+function dateArticle(item) {
+  const dateBrute = item.isoDate || item.pubDate || item.date;
+
+  if (!dateBrute) return null;
+
+  const date = new Date(dateBrute);
+
+  if (isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date;
+}
+
+function ageEnJours(date) {
+  const maintenant = new Date();
+  const difference = maintenant.getTime() - date.getTime();
+  return Math.floor(difference / (1000 * 60 * 60 * 24));
+}
+
+function libelleJour(age) {
+  if (age === 0) return "Actu du jour";
+  if (age === 1) return "Actu J-1";
+  if (age === 2) return "Actu J-2";
+  return "Ancienne actu";
+}
+
+function cleDoublon(titre, lien) {
+  return `${titre || ""}-${lien || ""}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
 async function chargerActus() {
   let results = [];
 
@@ -58,27 +92,59 @@ async function chargerActus() {
     try {
       const feed = await parser.parseURL(source.url);
 
-      const items = feed.items.slice(0, 8).map(item => {
-        const titre = item.title || "Titre inconnu";
+      const items = feed.items.slice(0, 20);
 
-        return {
+      for (const item of items) {
+        const date = dateArticle(item);
+
+        if (!date) continue;
+
+        const age = ageEnJours(date);
+
+        // On garde seulement les actus de J, J-1 et J-2
+        if (age < 0 || age >= JOURS_A_GARDER) {
+          continue;
+        }
+
+        const titre = item.title || "Titre inconnu";
+        const lien = item.link || "";
+
+        results.push({
           titre: titre,
-          date: item.pubDate || item.isoDate || "Date inconnue",
-          lien: item.link || "",
+          date: date.toISOString(),
+          dateLisible: date.toLocaleDateString("fr-FR"),
+          lien: lien,
           jeu: extraireNomJeu(titre),
           image: extraireImageDepuisFlux(item),
-          source: source.nom
-        };
-      });
-
-      results.push(...items);
+          source: source.nom,
+          age: age,
+          jour: libelleJour(age)
+        });
+      }
 
     } catch (error) {
       console.log("Erreur source :", source.nom, error.message);
     }
   }
 
-  results.sort((a, b) => new Date(b.date) - new Date(a.date));
+  // Suppression des doublons
+  const dejaVus = new Set();
+
+  results = results.filter(actu => {
+    const cle = cleDoublon(actu.titre, actu.lien);
+
+    if (dejaVus.has(cle)) {
+      return false;
+    }
+
+    dejaVus.add(cle);
+    return true;
+  });
+
+  // Tri du plus récent au plus ancien
+  results.sort((a, b) => {
+    return new Date(b.date) - new Date(a.date);
+  });
 
   return results;
 }
@@ -105,7 +171,7 @@ app.get("/actus", async (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.send("Backend BoardNews OK");
+  res.send("Backend LaParentheseLudiqueNews OK");
 });
 
 const PORT = process.env.PORT || 3000;
