@@ -12,12 +12,17 @@ const sources = [
   { nom: "Gus & Co", url: "https://gusandco.net/feed/" },
   { nom: "Tric Trac", url: "https://www.trictrac.net/rss" },
   { nom: "Vindjeu", url: "https://vindjeu.eu/feed/" },
-  { nom: "Un Monde de Jeux", url: "https://unmondedejeux.fr/feed/" }
+  { nom: "Un Monde de Jeux", url: "https://unmondedejeux.fr/feed/" },
+
+  // Nouvelles sources
+  { nom: "Plateau Marmots", url: "https://plateaumarmots.fr/feed/" },
+  { nom: "Les 1D Ludiques", url: "https://les1dludiques.fr/feed/" },
+  { nom: "Le Labo des Jeux", url: "https://www.lelabodesjeux.com/feed/" }
 ];
 
 let cacheActus = [];
 let cacheDate = 0;
-const CACHE_DUREE = 1000 * 60 * 10; // 10 minutes
+const CACHE_DUREE = 1000 * 60 * 10;
 const JOURS_A_GARDER = 3;
 
 function extraireNomJeu(titre) {
@@ -101,7 +106,6 @@ async function chargerActus() {
 
         const age = ageEnJours(date);
 
-        // On garde seulement les actus de J, J-1 et J-2
         if (age < 0 || age >= JOURS_A_GARDER) {
           continue;
         }
@@ -127,7 +131,6 @@ async function chargerActus() {
     }
   }
 
-  // Suppression des doublons
   const dejaVus = new Set();
 
   results = results.filter(actu => {
@@ -141,7 +144,6 @@ async function chargerActus() {
     return true;
   });
 
-  // Tri du plus récent au plus ancien
   results.sort((a, b) => {
     return new Date(b.date) - new Date(a.date);
   });
